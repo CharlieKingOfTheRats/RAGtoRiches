@@ -1,85 +1,70 @@
-# query.py
+# This code runs with proper dependences, Azure Key, and Postgresql config
 
 import os
 import numpy as np
-import psycopg2
 from sqlalchemy import create_engine, text
 from sentence_transformers import SentenceTransformer
 from openai import AzureOpenAI
 
-# PostgreSQL config
-PG_CONN_STRING = os.getenv("POSTGRES_CONNECTION_STRING")
-
-# SentenceTransformer model
-model = SentenceTransformer("intfloat/e5-large-v2")
-
-# Azure OpenAI config
-AZURE_OPENAI_ENDPOINT = "https://posaidon.openai.azure.com/"
-AZURE_DEPLOYMENT_NAME = "gpt-4o-mini"
-AZURE_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
-AZURE_API_VERSION = "2024-12-01-preview"
+# Azure OpenAI Setup
+endpoint = "#Azure_Endpoint"
+deployment = "gpt-4o-mini"
+api_version = "2024-12-01-preview"
+api_key = os.getenv("AZURE_OPENAI_KEY")
 
 client = AzureOpenAI(
-    api_key=AZURE_API_KEY,
-    api_version=AZURE_API_VERSION,
-    azure_endpoint=AZURE_OPENAI_ENDPOINT,
+    api_key=api_key,
+    api_version=api_version,
+    azure_endpoint=endpoint
 )
 
-# Connect to PostgreSQL
+# PostgreSQL
+PG_CONN_STRING = os.getenv("POSTGRES_CONNECTION_STRING")
+if not PG_CONN_STRING:
+    raise RuntimeError("POSTGRES_CONNECTION_STRING environment variable is not set.")
 engine = create_engine(PG_CONN_STRING)
+model = SentenceTransformer("intfloat/e5-base-v2")  # Make sure this matches your DB vector size
 
-# Vector similarity search
-def search(query, top_k=5):
-    query_embedding = model.encode(query, normalize_embeddings=True).tolist()
-    
-    sql = text("""
-        SELECT filename, chunk_id, chunk_text,
-            (embedding <=> :query_embedding) AS distance
-        FROM documents
-        ORDER BY distance ASC
-        LIMIT :top_k
-    """)
-
+def search_similar_chunks(user_query, top_k=5):
+    query_embedding = model.encode(user_query, normalize_embeddings=True).tolist()
+    embedding_str = "[" + ",".join(str(x) for x in query_embedding) + "]"
     with engine.connect() as conn:
-        results = conn.execute(sql, {
-            'query_embedding': query_embedding,
-            'top_k': top_k
-        }).fetchall()
+        sql = text(f"""
+            SELECT filename, chunk_text, embedding <=> '{embedding_str}'::vector AS distance
+            FROM documents
+            ORDER BY distance ASC
+            LIMIT :top_k
+        """)
+        results = conn.execute(sql, {'top_k': top_k}).fetchall()
+        return results
 
-    return results
-
-# Call Azure OpenAI 4o Mini model with retrieved context
-def call_azure_openai(user_query, context_chunks):
-    context_text = "\n\n".join([chunk[2] for chunk in context_chunks])
-
-    system_prompt = (
-        "You are an expert engineering analyst. Use the provided business documents to answer questions accurately.\n"
-        "If the answer is not contained in the documents, say 'Insufficient data'."
+def ask_openai(context, user_query):
+    prompt = (
+        f"You are an expert engineering and technical analyst.\n\n"
+        f"Context:\n{context}\n\n"
+        f"User Question: {user_query}\n\n"
+        f"Answer:"
     )
-
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": f"Documents:\n{context_text}\n\nQuestion:\n{user_query}"}
-    ]
-
     response = client.chat.completions.create(
-        model=AZURE_DEPLOYMENT_NAME,
-        messages=messages,
-        temperature=0.3,
-        max_tokens=1200
+        model=deployment,
+        messages=[
+            {"role": "system", "content": prompt}
+        ],
+        max_tokens=800,
+        temperature=0
     )
-
     return response.choices[0].message.content
 
 if __name__ == "__main__":
     while True:
-        user_query = input("Enter your question (or type 'quit' to exit): ")
-        if user_query.lower() == "quit":
+        user_query = input("Ask your question (or type 'quit'): ")
+        if user_query.lower().strip() == 'quit':
             break
 
-        chunks = search(user_query)
-        answer = call_azure_openai(user_query, chunks)
-
-        print("\n💡 Answer:\n")
-        print(answer)
-        print("\n" + "-"*80 + "\n")
+        try:
+            results = search_similar_chunks(user_query)
+            context = "\n".join([r[1] for r in results])
+            answer = ask_openai(context, user_query)
+            print(f"\n💡 Answer:\n{answer}\n")
+        except Exception as e:
+            print(f"❌ Error: {str(e)}\nPlease try again.")

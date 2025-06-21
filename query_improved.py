@@ -27,7 +27,7 @@ client = AzureOpenAI(
     azure_endpoint=AZURE_ENDPOINT,
 )
 
-embedder = SentenceTransformer("intfloat/e5-large-v2")  # Must match DB
+embedder = SentenceTransformer("intfloat/e5-mistral-7b-instruct")  # 1048-dim
 tokenizer = tiktoken.get_encoding("cl100k_base")
 
 # ────────────────────────────────────────────────

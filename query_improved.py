@@ -17,7 +17,7 @@ if not PG_CONN_STRING:
 engine = create_engine(PG_CONN_STRING)
 
 AZURE_API_KEY = os.getenv("AZURE_OPENAI_KEY")
-AZURE_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "https://posaidon.openai.azure.com/")
+AZURE_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "endpoint")
 MODEL_NAME = "gpt-4o-mini"
 API_VERSION = "2024-12-01-preview"
 

@@ -20,7 +20,7 @@ if not PG_CONN_STRING:
     raise RuntimeError("❌ POSTGRES_CONNECTION_STRING is not set.")
 engine = create_engine(PG_CONN_STRING)
 
-model = SentenceTransformer("intfloat/e5-large-v2")  # 768-dim
+model = SentenceTransformer("intfloat/e5-mistral-7b-instruct")  # 1048-dim
 tokenizer = tiktoken.get_encoding("cl100k_base")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")

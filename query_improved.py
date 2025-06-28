@@ -18,7 +18,6 @@ engine = create_engine(PG_CONN_STRING)
 
 AZURE_API_KEY = os.getenv("AZURE_OPENAI_KEY")
 AZURE_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "endpoint")
-MODEL_NAME = "gpt-4o-mini"
 API_VERSION = "2024-12-01-preview"
 
 client = AzureOpenAI(
@@ -54,11 +53,22 @@ def search_similar_chunks(query, top_k=5, metric="cosine"):
     return rows, embedding
 
 # ────────────────────────────────────────────────
+# MODEL SELECTION LOGIC
+# ────────────────────────────────────────────────
+def select_model(token_count):
+    if token_count < 800:
+        return "gpt-3.5-turbo"
+    elif token_count < 1800:
+        return "gpt-4o-mini"
+    else:
+        return "gpt-4o"
+
+# ────────────────────────────────────────────────
 # GPT CALL
 # ────────────────────────────────────────────────
 def ask_openai(context, user_query):
     prompt = (
-        "You are an engineering and systems analyst. "
+        "You are a System Safety engineer and an expert analyst. "
         "Use the provided context to answer the question precisely and concisely.\n\n"
         f"Context:\n{context}\n\n"
         f"User Question: {user_query}\n\nAnswer:"
@@ -67,15 +77,18 @@ def ask_openai(context, user_query):
     token_count = len(tokenizer.encode(prompt))
     logging.info(f"🔢 Prompt tokens: {token_count}")
 
+    model_to_use = select_model(token_count)
+    logging.info(f"🤖 Using model: {model_to_use}")
+
     response = client.chat.completions.create(
-        model=MODEL_NAME,
+        model=model_to_use,
         messages=[{"role": "system", "content": prompt}],
         max_tokens=800,
         temperature=0.3
     )
 
     answer = response.choices[0].message.content
-    return answer, token_count
+    return answer, token_count, model_to_use
 
 # ────────────────────────────────────────────────
 # STORE FEEDBACK / METADATA
@@ -119,12 +132,12 @@ if __name__ == "__main__":
             for i, (title, text, distance) in enumerate(chunks):
                 logging.info(f"📄 Match {i+1}: '{title}' | Distance: {distance:.4f}")
 
-            answer, prompt_tokens = ask_openai(context, user_query)
+            answer, prompt_tokens, model_used = ask_openai(context, user_query)
             print(f"\n💡 Answer:\n{answer}")
 
             fb = input("\nWas this helpful? (yes/no/skip): ").strip().lower()
             if fb in ["yes", "no"]:
-                store_feedback(user_query, answer, fb, prompt_tokens, MODEL_NAME)
+                store_feedback(user_query, answer, fb, prompt_tokens, model_used)
 
         except Exception as e:
             logging.error(f"❌ Error: {e}")
